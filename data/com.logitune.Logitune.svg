@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Dark rounded background -->
+  <rect width="128" height="128" rx="28" fill="#1a1a1a"/>
+
+  <!-- Mouse shadow -->
+  <ellipse cx="64" cy="108" rx="28" ry="8" fill="#000" opacity="0.2"/>
+
+  <!-- Mouse body -->
+  <path d="M38 34 C38 18 48 8 64 8 C80 8 90 18 90 34 L90 88 C90 104 80 114 64 114 C48 114 38 104 38 88 Z"
+        fill="#333333" stroke="#444444" stroke-width="1.5"/>
+
+  <!-- Mouse left/right button divide -->
+  <line x1="64" y1="8" x2="64" y2="48" stroke="#2a2a2a" stroke-width="1.2"/>
+
+  <!-- Scroll wheel -->
+  <rect x="60" y="18" width="8" height="20" rx="4" fill="#00EAD0" opacity="0.8"/>
+  <!-- Scroll wheel notches -->
+  <line x1="61.5" y1="24" x2="66.5" y2="24" stroke="#1a1a1a" stroke-width="0.7"/>
+  <line x1="61.5" y1="28" x2="66.5" y2="28" stroke="#1a1a1a" stroke-width="0.7"/>
+  <line x1="61.5" y1="32" x2="66.5" y2="32" stroke="#1a1a1a" stroke-width="0.7"/>
+
+  <!-- Mouse side buttons (thumb) -->
+  <rect x="35.5" y="52" width="4" height="10" rx="1.5" fill="#444444"/>
+  <rect x="35.5" y="66" width="4" height="10" rx="1.5" fill="#444444"/>
+
+  <!-- Mouse body highlight (top-left reflection) -->
+  <path d="M41 36 C41 20 48 12 64 12 C69 12 74 14 78 16 L78 40 C73 38 68 36 63 36 C55 36 48 36 41 36 Z"
+        fill="#3d3d3d" opacity="0.35"/>
+
+  <!-- Teal accent dot on mouse body -->
+  <circle cx="50" cy="60" r="3" fill="#00EAD0" opacity="0.9"/>
+</svg>

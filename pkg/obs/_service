@@ -1,0 +1,21 @@
+<services>
+  <service name="tar_scm">
+    <param name="url">https://github.com/mmaher88/logitune.git</param>
+    <param name="scm">git</param>
+    <param name="revision">master</param>
+    <param name="versionformat">@PARENT_TAG@</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
+    <param name="filename">logitune</param>
+    <param name="exclude">.git</param>
+    <param name="exclude">.github</param>
+    <param name="exclude">build</param>
+    <param name="exclude">docs</param>
+    <param name="exclude">reference</param>
+  </service>
+  <service name="set_version"/>
+  <service name="recompress">
+    <param name="file">*.tar</param>
+    <param name="compression">xz</param>
+  </service>
+</services>

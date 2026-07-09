@@ -1,0 +1,7 @@
+{
+  "uuid": "logitune-focus@logitune.com",
+  "name": "Logitune Focus Watcher",
+  "description": "Reports active window changes to Logitune for per-app profile switching.",
+  "shell-version": ["42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52"],
+  "version": 1
+}

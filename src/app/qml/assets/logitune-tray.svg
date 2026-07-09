@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- Mouse body -->
+  <path d="M6 5 C6 2.5 8.5 1 12 1 C15.5 1 18 2.5 18 5 L18 16 C18 19.5 15.5 22 12 22 C8.5 22 6 19.5 6 16 Z"
+        fill="#333333" stroke="#555555" stroke-width="0.8"/>
+
+  <!-- Left/right divide -->
+  <line x1="12" y1="1" x2="12" y2="9" stroke="#2a2a2a" stroke-width="0.6"/>
+
+  <!-- Scroll wheel -->
+  <rect x="10.8" y="3.5" width="2.4" height="4.5" rx="1.2" fill="#00EAD0" opacity="0.8"/>
+  <line x1="11.2" y1="4.8" x2="12.8" y2="4.8" stroke="#1a1a1a" stroke-width="0.3"/>
+  <line x1="11.2" y1="5.8" x2="12.8" y2="5.8" stroke="#1a1a1a" stroke-width="0.3"/>
+  <line x1="11.2" y1="6.8" x2="12.8" y2="6.8" stroke="#1a1a1a" stroke-width="0.3"/>
+
+  <!-- Side buttons -->
+  <rect x="5.2" y="8" width="1.3" height="2.5" rx="0.4" fill="#444444"/>
+  <rect x="5.2" y="11.5" width="1.3" height="2.5" rx="0.4" fill="#444444"/>
+
+  <!-- Accent dot -->
+  <circle cx="9" cy="10" r="1" fill="#00EAD0"/>
+</svg>

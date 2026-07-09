@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Logitune — Data &amp; Event Flow</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; padding: 40px; }
+  h1 { color: #00EAD0; font-size: 28px; margin-bottom: 8px; }
+  h2 { color: #00EAD0; font-size: 16px; margin: 32px 0 16px; letter-spacing: 1px; text-transform: uppercase; }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 40px; }
+  .section { margin-bottom: 48px; }
+
+  .flow-diagram { position: relative; max-width: 1000px; }
+
+  .node {
+    position: relative;
+    display: inline-block;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin: 6px;
+    min-width: 140px;
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .node h3 { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .node p { font-size: 10px; color: #999; }
+
+  .node.qml { background: #1a2a2a; border: 1px solid #00EAD0; }
+  .node.qml h3 { color: #00EAD0; }
+  .node.model { background: #1a1a2a; border: 1px solid #814EFA; }
+  .node.model h3 { color: #814EFA; }
+  .node.controller { background: #2a1a1a; border: 1px solid #FA4E4E; }
+  .node.controller h3 { color: #FA4E4E; }
+  .node.core { background: #1a1a1c; border: 1px solid #888; }
+  .node.core h3 { color: #ccc; }
+  .node.cache { background: #1a2a1a; border: 1px solid #4afa4a; }
+  .node.cache h3 { color: #4afa4a; }
+  .node.hw { background: #2a2a1a; border: 1px solid #faa614; }
+  .node.hw h3 { color: #faa614; }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 8px 0;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .arrow {
+    color: #555;
+    font-size: 18px;
+    min-width: 30px;
+    text-align: center;
+  }
+  .arrow.down { display: block; text-align: center; margin: 4px 0; color: #555; font-size: 18px; }
+  .arrow.accent { color: #00EAD0; }
+  .arrow.red { color: #FA4E4E; }
+  .arrow.green { color: #4afa4a; }
+  .arrow.orange { color: #faa614; }
+
+  .legend {
+    display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 32px;
+    padding: 12px 16px; background: #111; border-radius: 8px; border: 1px solid #222;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+  .scenario {
+    background: #111; border: 1px solid #252527; border-radius: 12px;
+    padding: 20px 24px; margin-bottom: 20px;
+  }
+  .scenario h3 { color: #fff; font-size: 15px; margin-bottom: 12px; }
+  .step {
+    display: flex; align-items: flex-start; gap: 12px; margin: 8px 0;
+    padding: 8px 12px; border-radius: 6px;
+  }
+  .step:nth-child(odd) { background: rgba(255,255,255,0.02); }
+  .step-num {
+    background: #222; color: #00EAD0; width: 24px; height: 24px;
+    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+  }
+  .step-content { font-size: 12px; line-height: 1.6; }
+  .step-content code {
+    background: #1a1a1c; padding: 1px 6px; border-radius: 3px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #00EAD0;
+  }
+  .step-content .signal { color: #814EFA; }
+  .step-content .writes { color: #faa614; }
+  .step-content .cache-op { color: #4afa4a; }
+  .step-content .ui-op { color: #00EAD0; }
+  .step-content .no { color: #FA4E4E; }
+
+  .problem { border-left: 3px solid #FA4E4E; padding-left: 12px; margin: 12px 0; }
+  .problem h4 { color: #FA4E4E; font-size: 12px; margin-bottom: 4px; }
+  .problem p { font-size: 11px; color: #999; }
+
+  .correct { border-left: 3px solid #4afa4a; padding-left: 12px; margin: 12px 0; }
+  .correct h4 { color: #4afa4a; font-size: 12px; margin-bottom: 4px; }
+  .correct p { font-size: 11px; color: #999; }
+
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #222; font-size: 12px; }
+  th { color: #888; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td code { color: #00EAD0; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>Logitune — Data &amp; Event Flow</h1>
+<p class="subtitle">Current state with problems highlighted &amp; proposed fix</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#00EAD0"></div> QML UI</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#814EFA"></div> Models (QML bridge)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#FA4E4E"></div> AppRoot</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#4afa4a"></div> Profile Cache</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#888"></div> Core (DeviceManager)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#faa614"></div> Hardware (HID++)</div>
+</div>
+
+<!-- CURRENT ARCHITECTURE -->
+<div class="section">
+<h2>Current Architecture (with problems)</h2>
+
+<div class="flow-row">
+  <div class="node qml"><h3>QML Slider / Toggle</h3><p>User changes DPI</p></div>
+  <span class="arrow">→</span>
+  <div class="node model"><h3>DeviceModel.setDPI()</h3><p>Q_INVOKABLE</p></div>
+  <span class="arrow red">→</span>
+  <div class="node cache"><h3>ProfileEngine cache</h3><p>Updates displayed profile</p></div>
+  <span class="arrow red">→</span>
+  <div class="node core"><h3>DeviceManager.setDPI()</h3><p>if display == hardware</p></div>
+  <span class="arrow orange">→</span>
+  <div class="node hw"><h3>HID++ Write</h3><p>Fire-and-forget</p></div>
+</div>
+
+<div class="problem">
+  <h4>Problem 1: DeviceModel → ProfileEngine (layering violation)</h4>
+  <p>DeviceModel (model layer) directly holds a ProfileEngine* (core layer). Models should not reach into core — AppRoot should mediate.</p>
+</div>
+
+<div class="problem">
+  <h4>Problem 2: Duplicate save paths</h4>
+  <p>DeviceModel.setDPI() calls saveProfileToDisk(). AppRoot.saveCurrentProfile() also calls saveProfileToDisk(). Two writers, same file, can clobber.</p>
+</div>
+
+<div class="problem">
+  <h4>Problem 3: Getters read hardware, setters write cache</h4>
+  <p>DeviceModel.currentDPI() reads from DeviceManager (hardware). DeviceModel.setDPI() writes to cache. When viewing a non-active profile tab, the UI shows hardware values, not the profile's values.</p>
+</div>
+</div>
+
+<!-- SCENARIO BREAKDOWNS -->
+<div class="section">
+<h2>Current Scenarios (step by step)</h2>
+
+<div class="scenario">
+  <h3>Scenario 1: User changes DPI on the active profile tab</h3>
+  <div class="step"><div class="step-num">1</div><div class="step-content"><span class="ui-op">QML DPI slider</span> → calls <code>DeviceModel.setDPI(2400)</code></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-content">DeviceModel updates <span class="cache-op">cache: profile.dpi = 2400</span></div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-content">DeviceModel calls <span class="cache-op">saveProfileToDisk()</span> — <span class="no">SAVE #1</span></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-content">display == hardware → <span class="writes">DeviceManager.setDPI(2400)</span> → HID++ write</div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-content">DeviceManager emits <span class="signal">currentDPIChanged</span> — <span class="no">but nobody listens (removed)</span> ✓</div></div>
+  <div class="step"><div class="step-num">6</div><div class="step-content">Result: <span class="cache-op">cache correct</span>, <span class="writes">hardware correct</span>, <span class="cache-op">disk correct</span></div></div>
+</div>
+
+<div class="scenario">
+  <h3>Scenario 2: User changes DPI on a NON-active profile tab</h3>
+  <div class="step"><div class="step-num">1</div><div class="step-content"><span class="ui-op">QML DPI slider</span> → calls <code>DeviceModel.setDPI(2400)</code></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-content">DeviceModel updates <span class="cache-op">cache: profile.dpi = 2400</span> (correct profile)</div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-content">DeviceModel calls <span class="cache-op">saveProfileToDisk()</span></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-content">display != hardware → <span class="no">NO HID++ write</span> ✓</div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-content"><span class="no">BUT: QML still shows DeviceManager.currentDPI() = old hardware value!</span></div></div>
+  <div class="step"><div class="step-num">6</div><div class="step-content">The slider snaps back to the hardware value on next re-read</div></div>
+</div>
+
+<div class="scenario">
+  <h3>Scenario 3: User switches profile tab</h3>
+  <div class="step"><div class="step-num">1</div><div class="step-content"><span class="ui-op">Click "Chrome" tab</span> → <code>ProfileModel.setActiveByIndex(1)</code></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-content">ProfileModel emits <span class="signal">profileSwitched("Google Chrome")</span></div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-content">AppRoot.onTabSwitched → <span class="cache-op">ProfileEngine.setDisplayProfile("Google Chrome")</span></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-content">ProfileEngine emits <span class="signal">displayProfileChanged(profile)</span></div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-content">AppRoot.onDisplayProfileChanged → updates ButtonModel labels ✓</div></div>
+  <div class="step"><div class="step-num">6</div><div class="step-content"><span class="no">BUT: QML reads DPI/SmartShift from DeviceManager, not from the profile!</span></div></div>
+  <div class="step"><div class="step-num">7</div><div class="step-content">UI shows hardware values, not Chrome profile's values</div></div>
+</div>
+
+<div class="scenario">
+  <h3>Scenario 4: Window focus changes (e.g., switch to Chrome)</h3>
+  <div class="step"><div class="step-num">1</div><div class="step-content"><span class="signal">activeWindowChanged("Google-chrome")</span></div></div>
+  <div class="step"><div class="step-num">2</div><div class="step-content">AppRoot.onWindowFocusChanged → looks up profile for "Google-chrome"</div></div>
+  <div class="step"><div class="step-num">3</div><div class="step-content"><span class="cache-op">ProfileEngine.setHardwareProfile("Google Chrome")</span></div></div>
+  <div class="step"><div class="step-num">4</div><div class="step-content"><span class="writes">applyProfileToHardware()</span> → setDPI, setSmartShift, setScrollConfig, setThumbWheelMode, divertButtons</div></div>
+  <div class="step"><div class="step-num">5</div><div class="step-content"><span class="ui-op">Updates UI tab highlight</span> + <span class="cache-op">setDisplayProfile</span></div></div>
+</div>
+</div>
+
+<!-- PROPOSED FIX -->
+<div class="section">
+<h2>Proposed Fix</h2>
+
+<div class="correct">
+  <h4>Remove ProfileEngine from DeviceModel</h4>
+  <p>DeviceModel emits signals. AppRoot handles cache + hardware + disk. Single save path.</p>
+</div>
+
+<div class="flow-row">
+  <div class="node qml"><h3>QML Slider</h3><p>User changes DPI</p></div>
+  <span class="arrow accent">→</span>
+  <div class="node model"><h3>DeviceModel</h3><p>emit dpiChangeRequested(2400)</p></div>
+  <span class="arrow accent">→</span>
+  <div class="node controller"><h3>AppRoot</h3><p>Single handler</p></div>
+</div>
+<div class="arrow down accent">↓</div>
+<div class="flow-row">
+  <div class="node cache"><h3>1. Update cache</h3><p>profile.dpi = 2400</p></div>
+  <span class="arrow green">→</span>
+  <div class="node cache"><h3>2. Save to disk</h3><p>saveProfileToDisk()</p></div>
+  <span class="arrow orange">→</span>
+  <div class="node hw"><h3>3. If display==hw</h3><p>DeviceManager.setDPI()</p></div>
+</div>
+
+<h2>Proposed Signals</h2>
+
+<table>
+  <tr><th>Signal</th><th>Emitted by</th><th>Handled by</th><th>Action</th></tr>
+  <tr>
+    <td><code>dpiChangeRequested(int)</code></td>
+    <td>DeviceModel</td>
+    <td>AppRoot</td>
+    <td>cache.dpi = val → save → if display==hw: dm.setDPI()</td>
+  </tr>
+  <tr>
+    <td><code>smartShiftChangeRequested(bool, int)</code></td>
+    <td>DeviceModel</td>
+    <td>AppRoot</td>
+    <td>cache.smartShift = val → save → if display==hw: dm.setSmartShift()</td>
+  </tr>
+  <tr>
+    <td><code>scrollConfigChangeRequested(bool, bool)</code></td>
+    <td>DeviceModel</td>
+    <td>AppRoot</td>
+    <td>cache.scroll = val → save → if display==hw: dm.setScrollConfig()</td>
+  </tr>
+  <tr>
+    <td><code>thumbWheelModeChangeRequested(QString)</code></td>
+    <td>DeviceModel</td>
+    <td>AppRoot</td>
+    <td>cache.thumbWheelMode = val → save → if display==hw: dm.setThumbWheelMode()</td>
+  </tr>
+</table>
+
+<h2>What Also Needs to Change</h2>
+
+<table>
+  <tr><th>Issue</th><th>Fix</th></tr>
+  <tr>
+    <td>DeviceModel getters read from DeviceManager (hardware)</td>
+    <td>When display != hardware, getters should read from the cached profile instead. AppRoot pushes profile values to DeviceModel on tab switch.</td>
+  </tr>
+  <tr>
+    <td>Dead code in ProfileEngine (switchToProfile, activeProfile, etc.)</td>
+    <td>Remove old methods, signals, and members that are no longer connected</td>
+  </tr>
+  <tr>
+    <td>Duplicate saveProfileToDisk calls</td>
+    <td>Single save path in AppRoot only</td>
+  </tr>
+</table>
+</div>
+
+<p style="color: #444; font-size: 11px; margin-top: 40px;">Generated from Logitune codebase analysis — 2026-03-28</p>
+
+</body>
+</html>

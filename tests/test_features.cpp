@@ -1,0 +1,223 @@
+#include <gtest/gtest.h>
+#include "hidpp/features/Battery.h"
+#include "hidpp/features/AdjustableDPI.h"
+#include "hidpp/features/DeviceName.h"
+
+using namespace logitune::hidpp;
+using namespace logitune::hidpp::features;
+
+// ---------------------------------------------------------------------------
+// Battery
+// ---------------------------------------------------------------------------
+
+// UnifiedBattery format: [percentage, levelBitmask, BatteryState, reserved]
+TEST(Battery, ParseDischarging) {
+    Report r;
+    r.params[0] = 78;   // 78%
+    r.params[1] = 0x08; // level bitmask: full
+    r.params[2] = 0x00; // BatteryState::Discharging
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 78);
+    EXPECT_EQ(status.state, BatteryState::Discharging);
+    EXPECT_FALSE(status.charging);
+}
+
+TEST(Battery, ParseRecharging) {
+    Report r;
+    r.params[0] = 50;
+    r.params[1] = 0x04; // level bitmask: good
+    r.params[2] = 0x01; // BatteryState::Recharging
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 50);
+    EXPECT_EQ(status.state, BatteryState::Recharging);
+    EXPECT_TRUE(status.charging);
+}
+
+TEST(Battery, ParseFull) {
+    Report r;
+    r.params[0] = 100;
+    r.params[1] = 0x08;
+    r.params[2] = 0x03; // BatteryState::Full
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 100);
+    EXPECT_EQ(status.state, BatteryState::Full);
+    EXPECT_TRUE(status.charging); // Full still means plugged in
+}
+
+TEST(Battery, ParseSlowRecharge) {
+    Report r;
+    r.params[0] = 95;
+    r.params[1] = 0x08;
+    r.params[2] = 0x04; // BatteryState::SlowRecharge
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 95);
+    EXPECT_EQ(status.state, BatteryState::SlowRecharge);
+    EXPECT_TRUE(status.charging);
+}
+
+TEST(Battery, ParseZeroPercentUsesLevelBitmask) {
+    Report r;
+    r.params[0] = 0;    // percentage 0 = use bitmask
+    r.params[1] = 0x02; // level bitmask: low
+    r.params[2] = 0x00; // discharging
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 20); // low = 20%
+    EXPECT_FALSE(status.charging);
+}
+
+TEST(Battery, ParseZeroPercentCritical) {
+    Report r;
+    r.params[0] = 0;
+    r.params[1] = 0x01; // critical
+    r.params[2] = 0x01; // recharging
+    auto status = Battery::parseStatus(r);
+    EXPECT_EQ(status.level, 5); // critical = 5%
+    EXPECT_TRUE(status.charging);
+}
+
+// ---------------------------------------------------------------------------
+// Battery (BATTERY_STATUS 0x1000 legacy format)
+// ---------------------------------------------------------------------------
+// Legacy format:
+//   params[0] = current discharge level (percentage)
+//   params[1] = next discharge threshold (ignored)
+//   params[2] = status byte (same enum as UnifiedBattery)
+
+TEST(BatteryLegacy, ParseDischarging) {
+    Report r;
+    r.params[0] = 78;    // 78%
+    r.params[1] = 50;    // next threshold (ignored)
+    r.params[2] = 0x00;  // BatteryState::Discharging
+    auto status = Battery::parseStatusLegacy(r);
+    EXPECT_EQ(status.level, 78);
+    EXPECT_EQ(status.state, BatteryState::Discharging);
+    EXPECT_FALSE(status.charging);
+}
+
+TEST(BatteryLegacy, ParseRecharging) {
+    Report r;
+    r.params[0] = 45;
+    r.params[1] = 30;
+    r.params[2] = 0x01;  // BatteryState::Recharging
+    auto status = Battery::parseStatusLegacy(r);
+    EXPECT_EQ(status.level, 45);
+    EXPECT_EQ(status.state, BatteryState::Recharging);
+    EXPECT_TRUE(status.charging);
+}
+
+TEST(BatteryLegacy, ParseFull) {
+    Report r;
+    r.params[0] = 100;
+    r.params[1] = 90;
+    r.params[2] = 0x03;  // BatteryState::Full
+    auto status = Battery::parseStatusLegacy(r);
+    EXPECT_EQ(status.level, 100);
+    EXPECT_EQ(status.state, BatteryState::Full);
+    EXPECT_TRUE(status.charging);
+}
+
+TEST(BatteryLegacy, IgnoresMiddleByte) {
+    // Legacy format's params[1] must NOT be interpreted as a level bitmask.
+    // If parseStatusLegacy accidentally fell through to bitmask logic, it
+    // would mis-report percentage. Setting params[0]=0 guards the fallback path.
+    Report r;
+    r.params[0] = 0;    // would trigger bitmask fallback in parseStatus()
+    r.params[1] = 0x08; // looks like "full" bitmask but is next-threshold %
+    r.params[2] = 0x00;
+    auto status = Battery::parseStatusLegacy(r);
+    EXPECT_EQ(status.level, 0);  // must stay 0, not become 90
+    EXPECT_FALSE(status.charging);
+}
+
+// ---------------------------------------------------------------------------
+// AdjustableDPI
+// ---------------------------------------------------------------------------
+
+TEST(AdjustableDPI, ParseSensorDpiList) {
+    // Function 1 response: [sensorIdx, minDPI_hi, minDPI_lo, ?, step, maxDPI_hi, maxDPI_lo]
+    Report r;
+    r.params[0] = 0x00;                      // sensor index
+    r.params[1] = 0x00; r.params[2] = 0xC8; // minDPI = 200
+    r.params[3] = 0xE0;                      // unknown
+    r.params[4] = 0x32;                      // step = 50
+    r.params[5] = 0x1F; r.params[6] = 0x40; // maxDPI = 8000
+    auto info = AdjustableDPI::parseSensorDpiList(r);
+    EXPECT_EQ(info.minDPI, 200);
+    EXPECT_EQ(info.maxDPI, 8000);
+    EXPECT_EQ(info.stepDPI, 50);
+}
+
+TEST(AdjustableDPI, ParseCurrentDPI) {
+    // Function 2 response: [sensorIdx, dpi_hi, dpi_lo, ...]
+    Report r;
+    r.params[0] = 0x00;
+    r.params[1] = 0x03; r.params[2] = 0xE8; // 1000
+    EXPECT_EQ(AdjustableDPI::parseCurrentDPI(r), 1000);
+}
+
+TEST(AdjustableDPI, BuildSetDPIRequest) {
+    // 1600 = 0x0640
+    auto params = AdjustableDPI::buildSetDPI(1600, 0);
+    EXPECT_EQ(params[0], 0x00); // sensorIndex
+    EXPECT_EQ(params[1], 0x06); // high byte
+    EXPECT_EQ(params[2], 0x40); // low byte
+}
+
+TEST(AdjustableDPI, BuildSetDPIHighSensor) {
+    // 800 = 0x0320
+    auto params = AdjustableDPI::buildSetDPI(800, 1);
+    EXPECT_EQ(params[0], 0x01);
+    EXPECT_EQ(params[1], 0x03);
+    EXPECT_EQ(params[2], 0x20);
+}
+
+TEST(AdjustableDPI, BuildSetDPIRoundTrip) {
+    int dpi = 3200;
+    auto params = AdjustableDPI::buildSetDPI(dpi, 0);
+    int decoded = (static_cast<int>(params[1]) << 8) | static_cast<int>(params[2]);
+    EXPECT_EQ(decoded, dpi);
+}
+
+// ---------------------------------------------------------------------------
+// DeviceName
+// ---------------------------------------------------------------------------
+
+TEST(DeviceName, ParseNameLength) {
+    Report r;
+    r.params[0] = 14;
+    r.paramLength = 1;
+    auto len = DeviceName::parseNameLength(r);
+    EXPECT_EQ(len, 14);
+}
+
+TEST(DeviceName, ParseNameChunk) {
+    Report r;
+    r.params[0] = 'M'; r.params[1] = 'X'; r.params[2] = ' ';
+    r.params[3] = 'M'; r.params[4] = 'a'; r.params[5] = 's';
+    r.paramLength = 6;
+    auto name = DeviceName::parseNameChunk(r);
+    EXPECT_EQ(name, "MX Mas");
+}
+
+TEST(DeviceName, ParseNameChunkEmpty) {
+    Report r;
+    r.paramLength = 0;
+    auto name = DeviceName::parseNameChunk(r);
+    EXPECT_TRUE(name.isEmpty());
+}
+
+TEST(DeviceName, ParseNameLengthZero) {
+    Report r;
+    r.params[0] = 0;
+    r.paramLength = 1;
+    EXPECT_EQ(DeviceName::parseNameLength(r), 0);
+}
+
+TEST(DeviceName, ParseSerialReturnsASCII) {
+    Report r;
+    r.params[0] = 'A'; r.params[1] = 'B'; r.params[2] = 'C';
+    r.params[3] = '1'; r.params[4] = '2'; r.params[5] = '3';
+    r.paramLength = 6;
+    auto serial = DeviceName::parseSerial(r);
+    EXPECT_EQ(serial, "ABC123");
+}

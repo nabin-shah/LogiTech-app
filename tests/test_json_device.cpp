@@ -1,0 +1,545 @@
+#include <gtest/gtest.h>
+#include "devices/JsonDevice.h"
+
+#include <QTemporaryDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QFile>
+#include <QFileInfo>
+
+using namespace logitune;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static QJsonObject makeControl(const QString& cid, int idx, const QString& name,
+                               const QString& action, bool configurable)
+{
+    return QJsonObject{
+        {QStringLiteral("controlId"), cid},
+        {QStringLiteral("buttonIndex"), idx},
+        {QStringLiteral("defaultName"), name},
+        {QStringLiteral("defaultActionType"), action},
+        {QStringLiteral("configurable"), configurable},
+    };
+}
+
+static QJsonObject makeHotspot(int idx, double x, double y,
+                               const QString& side, double labelOff = 0.0)
+{
+    return QJsonObject{
+        {QStringLiteral("buttonIndex"), idx},
+        {QStringLiteral("xPct"), x},
+        {QStringLiteral("yPct"), y},
+        {QStringLiteral("side"), side},
+        {QStringLiteral("labelOffsetYPct"), labelOff},
+    };
+}
+
+static QJsonObject makeMinimalVerified()
+{
+    QJsonObject root;
+    root[QStringLiteral("name")] = QStringLiteral("Test Device");
+    root[QStringLiteral("status")] = QStringLiteral("verified");
+    root[QStringLiteral("productIds")] = QJsonArray{QStringLiteral("0xAAAA")};
+    root[QStringLiteral("features")] = QJsonObject{
+        {QStringLiteral("battery"), true},
+        {QStringLiteral("smoothScroll"), true},
+    };
+    root[QStringLiteral("dpi")] = QJsonObject{
+        {QStringLiteral("min"), 400},
+        {QStringLiteral("max"), 4000},
+        {QStringLiteral("step"), 100},
+    };
+    root[QStringLiteral("controls")] = QJsonArray{
+        makeControl(QStringLiteral("0x0050"), 0, QStringLiteral("Left"), QStringLiteral("default"), false),
+        makeControl(QStringLiteral("0x00C3"), 1, QStringLiteral("Gesture"), QStringLiteral("gesture-trigger"), true),
+    };
+    root[QStringLiteral("hotspots")] = QJsonObject{
+        {QStringLiteral("buttons"), QJsonArray{
+            makeHotspot(0, 0.5, 0.5, QStringLiteral("right")),
+        }},
+        {QStringLiteral("scroll"), QJsonArray{
+            makeHotspot(-1, 0.7, 0.2, QStringLiteral("right")),
+        }},
+    };
+    root[QStringLiteral("images")] = QJsonObject{
+        {QStringLiteral("front"), QStringLiteral("front.png")},
+        {QStringLiteral("side"), QStringLiteral("side.png")},
+        {QStringLiteral("back"), QStringLiteral("back.png")},
+    };
+    root[QStringLiteral("easySwitchSlots")] = QJsonArray{
+        QJsonObject{{QStringLiteral("xPct"), 0.3}, {QStringLiteral("yPct"), 0.6}},
+        QJsonObject{{QStringLiteral("xPct"), 0.4}, {QStringLiteral("yPct"), 0.6}},
+    };
+    root[QStringLiteral("defaultGestures")] = QJsonObject{
+        {QStringLiteral("up"), QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("Default")},
+            {QStringLiteral("payload"), QStringLiteral("")},
+        }},
+        {QStringLiteral("down"), QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("Keystroke")},
+            {QStringLiteral("payload"), QStringLiteral("Super+D")},
+        }},
+    };
+    return root;
+}
+
+static QJsonObject makeMinimalBeta()
+{
+    QJsonObject root;
+    root[QStringLiteral("name")] = QStringLiteral("Beta Mouse");
+    root[QStringLiteral("status")] = QStringLiteral("beta");
+    root[QStringLiteral("productIds")] = QJsonArray{QStringLiteral("0xBBBB")};
+    root[QStringLiteral("features")] = QJsonObject{};
+    root[QStringLiteral("controls")] = QJsonArray{};
+    root[QStringLiteral("hotspots")] = QJsonObject{
+        {QStringLiteral("buttons"), QJsonArray{}},
+        {QStringLiteral("scroll"), QJsonArray{}},
+    };
+    root[QStringLiteral("images")] = QJsonObject{};
+    return root;
+}
+
+static void writeJson(const QString& dirPath, const QJsonObject& obj)
+{
+    QFile f(dirPath + QStringLiteral("/descriptor.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(QJsonDocument(obj).toJson());
+}
+
+static void writeDummyImage(const QString& dirPath, const QString& name)
+{
+    QFile f(dirPath + QStringLiteral("/") + name);
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write("PNG");
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+TEST(JsonDevice, LoadValidVerified)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    writeJson(dir, makeMinimalVerified());
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+
+    EXPECT_EQ(dev->deviceName(), QStringLiteral("Test Device"));
+    EXPECT_EQ(dev->status(), JsonDevice::Status::Verified);
+
+    // Product IDs
+    auto pids = dev->productIds();
+    ASSERT_EQ(pids.size(), 1u);
+    EXPECT_EQ(pids[0], 0xAAAA);
+    EXPECT_TRUE(dev->matchesPid(0xAAAA));
+    EXPECT_FALSE(dev->matchesPid(0xFFFF));
+
+    // Features
+    auto f = dev->features();
+    EXPECT_TRUE(f.battery);
+    EXPECT_TRUE(f.smoothScroll);
+
+    // DPI
+    EXPECT_EQ(dev->minDpi(), 400);
+    EXPECT_EQ(dev->maxDpi(), 4000);
+    EXPECT_EQ(dev->dpiStep(), 100);
+
+    // Controls
+    auto ctrls = dev->controls();
+    ASSERT_EQ(ctrls.size(), 2);
+    EXPECT_EQ(ctrls[0].controlId, 0x0050);
+    EXPECT_EQ(ctrls[1].controlId, 0x00C3);
+    EXPECT_EQ(ctrls[1].defaultActionType, QStringLiteral("gesture-trigger"));
+    EXPECT_TRUE(ctrls[1].configurable);
+
+    // Hotspots
+    EXPECT_EQ(dev->buttonHotspots().size(), 1);
+    EXPECT_EQ(dev->scrollHotspots().size(), 1);
+    EXPECT_TRUE(dev->buttonHotspots()[0].kind.isEmpty())
+        << "button hotspots should default to empty kind";
+
+    // Easy switch slot positions
+    auto easySlots = dev->easySwitchSlotPositions();
+    ASSERT_EQ(easySlots.size(), 2);
+    EXPECT_DOUBLE_EQ(easySlots[0].xPct, 0.3);
+
+    // Default gestures
+    auto gestures = dev->defaultGestures();
+    EXPECT_EQ(gestures.size(), 2);
+    EXPECT_EQ(gestures[QStringLiteral("up")].type, ButtonAction::Default);
+    EXPECT_EQ(gestures[QStringLiteral("down")].type, ButtonAction::Keystroke);
+    EXPECT_EQ(gestures[QStringLiteral("down")].payload, QStringLiteral("Super+D"));
+}
+
+TEST(JsonDevice, HotspotKindRoundTrip)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    QJsonObject root = makeMinimalVerified();
+    QJsonObject hotspots = root.value("hotspots").toObject();
+    QJsonArray scroll;
+
+    QJsonObject h1;
+    h1["buttonIndex"] = -1;
+    h1["xPct"] = 0.7;
+    h1["yPct"] = 0.2;
+    h1["side"] = "right";
+    h1["kind"] = "scrollwheel";
+    scroll.append(h1);
+
+    QJsonObject h2;
+    h2["buttonIndex"] = -2;
+    h2["xPct"] = 0.4;
+    h2["yPct"] = 0.5;
+    h2["side"] = "left";
+    h2["kind"] = "thumbwheel";
+    scroll.append(h2);
+
+    hotspots["scroll"] = scroll;
+    root["hotspots"] = hotspots;
+
+    writeJson(dir, root);
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+    ASSERT_EQ(dev->scrollHotspots().size(), 2);
+    EXPECT_EQ(dev->scrollHotspots()[0].kind, QStringLiteral("scrollwheel"));
+    EXPECT_EQ(dev->scrollHotspots()[1].kind, QStringLiteral("thumbwheel"));
+}
+
+TEST(JsonDevice, LoadValidBeta)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    writeJson(dir, makeMinimalBeta());
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+    EXPECT_EQ(dev->deviceName(), QStringLiteral("Beta Mouse"));
+    EXPECT_EQ(dev->status(), JsonDevice::Status::Beta);
+    EXPECT_TRUE(dev->controls().isEmpty());
+    EXPECT_TRUE(dev->buttonHotspots().isEmpty());
+}
+
+TEST(JsonDevice, MissingFileReturnsNull)
+{
+    auto dev = JsonDevice::load(QStringLiteral("/tmp/nonexistent_json_device_dir_12345"));
+    EXPECT_EQ(dev, nullptr);
+}
+
+TEST(JsonDevice, InvalidJsonReturnsNull)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    QFile f(tmp.path() + QStringLiteral("/descriptor.json"));
+    (void)f.open(QIODevice::WriteOnly);
+    f.write("this is not json {{{");
+    f.close();
+
+    auto dev = JsonDevice::load(tmp.path());
+    EXPECT_EQ(dev, nullptr);
+}
+
+TEST(JsonDevice, VerifiedMissingControlsReturnsNull)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    auto obj = makeMinimalVerified();
+    obj[QStringLiteral("controls")] = QJsonArray{}; // empty controls
+    writeJson(dir, obj);
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    EXPECT_EQ(dev, nullptr);
+}
+
+TEST(JsonDevice, BetaMissingControlsLoads)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    auto obj = makeMinimalBeta();
+    // controls already empty in beta
+    writeJson(dir, obj);
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+    EXPECT_TRUE(dev->controls().isEmpty());
+}
+
+TEST(JsonDevice, CidParsing)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    auto obj = makeMinimalVerified();
+    // Replace controls with one that has the CID we want to verify
+    obj[QStringLiteral("controls")] = QJsonArray{
+        makeControl(QStringLiteral("0x00C3"), 0, QStringLiteral("Gesture"), QStringLiteral("gesture-trigger"), true),
+    };
+    writeJson(dir, obj);
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+    ASSERT_EQ(dev->controls().size(), 1);
+    EXPECT_EQ(dev->controls()[0].controlId, 0x00C3);
+}
+
+TEST(JsonDevice, UnknownKeysIgnored)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    auto obj = makeMinimalVerified();
+    obj[QStringLiteral("unknownTopLevel")] = QStringLiteral("should be ignored");
+    auto feat = obj[QStringLiteral("features")].toObject();
+    feat[QStringLiteral("futureFeature")] = true;
+    obj[QStringLiteral("features")] = feat;
+    writeJson(dir, obj);
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+    EXPECT_EQ(dev->deviceName(), QStringLiteral("Test Device"));
+}
+
+TEST(JsonDevice, ImagePathResolution)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    writeJson(dir, makeMinimalVerified());
+    writeDummyImage(dir, QStringLiteral("front.png"));
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+
+    // Must be an absolute path ending with /front.png
+    EXPECT_TRUE(dev->frontImagePath().endsWith(QStringLiteral("/front.png")));
+    EXPECT_TRUE(QDir::isAbsolutePath(dev->frontImagePath()));
+
+    // side and back are relative in JSON but resolved to absolute
+    EXPECT_TRUE(dev->sideImagePath().endsWith(QStringLiteral("/side.png")));
+    EXPECT_TRUE(dev->backImagePath().endsWith(QStringLiteral("/back.png")));
+}
+
+TEST(JsonDevice, DefaultGesturesParsing)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    auto obj = makeMinimalBeta();
+    obj[QStringLiteral("defaultGestures")] = QJsonObject{
+        {QStringLiteral("up"), QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("Default")},
+            {QStringLiteral("payload"), QStringLiteral("")},
+        }},
+        {QStringLiteral("down"), QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("Keystroke")},
+            {QStringLiteral("payload"), QStringLiteral("Ctrl+C")},
+        }},
+        {QStringLiteral("click"), QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("SmartShiftToggle")},
+            {QStringLiteral("payload"), QStringLiteral("")},
+        }},
+    };
+    writeJson(dir, obj);
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+
+    auto g = dev->defaultGestures();
+    EXPECT_EQ(g.size(), 3);
+    EXPECT_EQ(g[QStringLiteral("up")].type, ButtonAction::Default);
+    EXPECT_EQ(g[QStringLiteral("down")].type, ButtonAction::Keystroke);
+    EXPECT_EQ(g[QStringLiteral("down")].payload, QStringLiteral("Ctrl+C"));
+    EXPECT_EQ(g[QStringLiteral("click")].type, ButtonAction::SmartShiftToggle);
+}
+
+TEST(JsonDevice, FeatureFlagDefaults)
+{
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    const QString dir = tmp.path();
+
+    // Placeholder with empty features object
+    auto obj = makeMinimalBeta();
+    obj[QStringLiteral("features")] = QJsonObject{};
+    writeJson(dir, obj);
+
+    auto dev = JsonDevice::load(dir);
+    ASSERT_NE(dev, nullptr);
+
+    auto f = dev->features();
+    // smoothScroll defaults to true, all others to false
+    EXPECT_TRUE(f.smoothScroll);
+    EXPECT_FALSE(f.battery);
+    EXPECT_FALSE(f.adjustableDpi);
+    EXPECT_FALSE(f.smartShift);
+    EXPECT_FALSE(f.hiResWheel);
+    EXPECT_FALSE(f.reprogControls);
+    EXPECT_FALSE(f.gestureV2);
+    EXPECT_FALSE(f.persistentRemappableAction);
+}
+
+TEST(JsonDevice, TracksSourcePathAndLoadMtime) {
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    QFile f(tmp.path() + QStringLiteral("/descriptor.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(R"({
+  "name": "Tester",
+  "status": "beta",
+  "productIds": ["0xffff"],
+  "features": {},
+  "controls": [],
+  "hotspots": {"buttons": [], "scroll": []},
+  "images": {},
+  "easySwitchSlots": []
+})");
+    f.close();
+
+    auto dev = logitune::JsonDevice::load(tmp.path());
+    ASSERT_NE(dev, nullptr);
+
+    EXPECT_EQ(dev->sourcePath(), QFileInfo(tmp.path()).canonicalFilePath());
+
+    const qint64 expected = QFileInfo(tmp.path() + "/descriptor.json")
+        .lastModified().toSecsSinceEpoch();
+    EXPECT_EQ(dev->loadedMtime(), expected);
+}
+
+TEST(JsonDevice, ParsesOptionalEditorFields) {
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    QFile f(tmp.path() + QStringLiteral("/descriptor.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(R"({
+  "name": "Tester",
+  "status": "beta",
+  "productIds": ["0xffff"],
+  "features": {},
+  "controls": [
+    {
+      "controlId": "0x0050",
+      "buttonIndex": 0,
+      "defaultName": "Left click",
+      "defaultActionType": "default",
+      "configurable": false,
+      "displayName": "Primary Button"
+    }
+  ],
+  "hotspots": {"buttons": [], "scroll": []},
+  "images": {},
+  "easySwitchSlots": [
+    {"xPct": 0.42, "yPct": 0.78, "label": "Mac"},
+    {"xPct": 0.50, "yPct": 0.78}
+  ]
+})");
+    f.close();
+
+    auto dev = logitune::JsonDevice::load(tmp.path());
+    ASSERT_NE(dev, nullptr);
+
+    const auto controls = dev->controls();
+    ASSERT_EQ(controls.size(), 1);
+    EXPECT_EQ(controls[0].displayName, QStringLiteral("Primary Button"));
+
+    const auto slotPositions = dev->easySwitchSlotPositions();
+    ASSERT_EQ(slotPositions.size(), 2);
+    EXPECT_EQ(slotPositions[0].label, QStringLiteral("Mac"));
+    EXPECT_TRUE(slotPositions[1].label.isEmpty());
+}
+
+TEST(JsonDevice, OptionalEditorFieldsDefaultEmptyWhenAbsent) {
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    QFile f(tmp.path() + QStringLiteral("/descriptor.json"));
+    ASSERT_TRUE(f.open(QIODevice::WriteOnly));
+    f.write(R"({
+  "name": "Tester",
+  "status": "beta",
+  "productIds": ["0xffff"],
+  "features": {},
+  "controls": [
+    {"controlId": "0x0050", "buttonIndex": 0, "defaultName": "Left click",
+     "defaultActionType": "default", "configurable": false}
+  ],
+  "hotspots": {"buttons": [], "scroll": []},
+  "images": {},
+  "easySwitchSlots": [{"xPct": 0.1, "yPct": 0.2}]
+})");
+    f.close();
+
+    auto dev = logitune::JsonDevice::load(tmp.path());
+    ASSERT_NE(dev, nullptr);
+    for (const auto &c : dev->controls())
+        EXPECT_TRUE(c.displayName.isEmpty());
+    for (const auto &s : dev->easySwitchSlotPositions())
+        EXPECT_TRUE(s.label.isEmpty());
+}
+
+TEST(JsonDevice, RefreshRereadsDescriptorInPlace) {
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+
+    auto write = [&](const QString &name) {
+        QFile f(tmp.path() + QStringLiteral("/descriptor.json"));
+        ASSERT_TRUE(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        f.write(QStringLiteral(R"({
+  "name": "%1",
+  "status": "beta",
+  "productIds": ["0xffff"],
+  "features": {},
+  "controls": [],
+  "hotspots": {"buttons": [], "scroll": []},
+  "images": {},
+  "easySwitchSlots": []
+})").arg(name).toUtf8());
+    };
+
+    write(QStringLiteral("Original Name"));
+    auto dev = logitune::JsonDevice::load(tmp.path());
+    ASSERT_NE(dev, nullptr);
+    const auto *raw = dev.get();
+    EXPECT_EQ(dev->deviceName(), QStringLiteral("Original Name"));
+
+    write(QStringLiteral("Mutated Name"));
+    ASSERT_TRUE(dev->refresh());
+    EXPECT_EQ(dev->deviceName(), QStringLiteral("Mutated Name"));
+    EXPECT_EQ(dev.get(), raw);
+}
+
+TEST(JsonDevice, OldStatusStringsStillParse) {
+    QTemporaryDir tmp;
+    ASSERT_TRUE(tmp.isValid());
+    auto root = makeMinimalVerified();
+    root[QStringLiteral("status")] = QStringLiteral("implemented");
+    writeJson(tmp.path(), root);
+    writeDummyImage(tmp.path(), QStringLiteral("front.png"));
+    auto dev = logitune::JsonDevice::load(tmp.path());
+    ASSERT_NE(dev, nullptr);
+    EXPECT_EQ(dev->status(), logitune::JsonDevice::Status::Verified);
+}

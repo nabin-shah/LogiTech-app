@@ -1,0 +1,253 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1: Build + Unit Tests (matrix across distros)
+  # --------------------------------------------------------------------------
+  build:
+    name: Build (${{ matrix.distro }})
+    runs-on: ubuntu-latest
+    container: ${{ matrix.container }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: archlinux
+            container: archlinux:latest
+            pkg_cache_path: /var/cache/pacman/pkg
+            install: pacman -Syu --noconfirm --needed cmake ninja gcc git pkgconf qt6-base qt6-declarative qt6-svg systemd-libs gtest
+            run_tests: false
+          - distro: fedora-42
+            container: fedora:42
+            pkg_cache_path: /var/cache/dnf
+            install: dnf install -y --setopt=keepcache=1 cmake ninja-build gcc-c++ git pkgconf-pkg-config qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtsvg-devel qt6-qtshadertools systemd-devel gtest-devel
+            run_tests: false
+          - distro: ubuntu-24.04
+            container: ubuntu:24.04
+            pkg_cache_path: /var/cache/apt/archives
+            # ubuntu:24.04 ships /etc/apt/apt.conf.d/docker-clean with a
+            # DPkg::Post-Invoke hook that deletes .deb files after each
+            # install, which defeats the cache. Remove it before installing.
+            install: >-
+              rm -f /etc/apt/apt.conf.d/docker-clean &&
+              echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/01keep-debs &&
+              apt-get update -qq && apt-get install -y cmake ninja-build g++ git pkg-config
+              qt6-base-dev qt6-declarative-dev qt6-svg-dev
+              qt6-base-dev-tools qt6-declarative-dev-tools
+              qml6-module-qtquick qml6-module-qtquick-controls
+              qml6-module-qtquick-layouts qml6-module-qtquick-window
+              qml6-module-qtquick-templates qml6-module-qtqml-workerscript
+              qml6-module-qtquick-dialogs
+              qt6-qpa-plugins libqt6opengl6-dev libqt6svg6-dev
+              libxkbcommon-dev qml6-module-qttest
+              libudev-dev libgtest-dev
+            run_tests: true
+
+    steps:
+      # Restore cached package downloads. Cache key is versioned: bump the
+      # v{N} suffix whenever the install lines above change to force a
+      # refresh. Cache misses fall back to a normal fresh install.
+      - name: Cache package downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.pkg_cache_path }}
+          key: ${{ matrix.distro }}-pkgs-v2
+
+      - name: Install dependencies
+        run: ${{ matrix.install }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need full history + tags so CMakeLists.txt's git-describe path
+          # can resolve LOGITUNE_VERSION. Without this, configure fails.
+          fetch-depth: 0
+
+      # Ubuntu ships gtest as source-only (libgtest-dev); we compile and
+      # install it ourselves. Cache the installed artifacts so subsequent
+      # runs skip the cmake build entirely.
+      - name: Cache gtest install
+        if: matrix.run_tests
+        id: gtest-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/lib/libgtest*
+            /usr/local/lib/libgmock*
+            /usr/local/include/gtest
+            /usr/local/include/gmock
+            /usr/local/lib/cmake/GTest
+            /usr/local/lib/pkgconfig/gtest.pc
+            /usr/local/lib/pkgconfig/gmock.pc
+          key: gtest-${{ matrix.distro }}-v1
+
+      - name: Build gtest
+        if: matrix.run_tests && steps.gtest-cache.outputs.cache-hit != 'true'
+        run: cd /usr/src/googletest && cmake -B build && cmake --build build && cmake --install build
+
+      - name: Configure
+        # CI builds aren't shipped; a static version string is fine. This
+        # also sidesteps git-describe inside container volumes where
+        # safe.directory can refuse to trust the mounted work tree.
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=${{ matrix.run_tests && 'ON' || 'OFF' }} -DLOGITUNE_VERSION=0.0.0+ci -Wno-dev
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: C++ tests
+        if: matrix.run_tests
+        run: ./build/tests/logitune-tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+          # DeviceRegistry loads JSON descriptors from
+          # $XDG_DATA_DIRS/logitune/devices. CMake creates a symlink at
+          # ${CMAKE_BINARY_DIR}/logitune/devices pointing at the source
+          # devices/ dir, so exposing the build root here lets the tests
+          # find the shipped descriptors.
+          XDG_DATA_DIRS: ${{ github.workspace }}/build
+
+      - name: Tray tests
+        if: matrix.run_tests
+        run: ./build/tests/logitune-tray-tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+          XDG_DATA_DIRS: ${{ github.workspace }}/build
+
+      - name: Install to staging directory
+        run: DESTDIR=${{ github.workspace }}/staging cmake --install build
+
+      - name: Verify installed files
+        run: |
+          echo "Checking installed files..."
+          STAGING="${{ github.workspace }}/staging"
+
+          find_file() {
+            local pattern="$1"
+            local desc="$2"
+            if find "$STAGING" -path "$pattern" | grep -q .; then
+              echo "  OK: $desc"
+            else
+              echo "  MISSING: $desc ($pattern)"
+              exit 1
+            fi
+          }
+
+          find_file "*/bin/logitune"                                           "logitune binary"
+          find_file "*/udev/rules.d/71-logitune.rules"                        "udev rules"
+          find_file "*/applications/logitune.desktop"                         ".desktop file"
+          find_file "*/icons/hicolor/scalable/apps/com.logitune.Logitune.svg" "icon svg"
+          find_file "*/gnome-shell/extensions/logitune-focus*/metadata.json"  "GNOME extension metadata"
+          find_file "*/gnome-shell/extensions/logitune-focus*/v45/extension.js" "GNOME extension v45"
+          find_file "*/gnome-shell/extensions/logitune-focus*/v42/extension.js" "GNOME extension v42"
+
+          echo "All expected files present."
+
+  # --------------------------------------------------------------------------
+  # Job 2: README device table must match devices/*/descriptor.json.
+  # Ensures the published table never drifts from the descriptors; new
+  # devices land in the same PR as the README update.
+  # --------------------------------------------------------------------------
+  devices-table-check:
+    name: README devices table
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pytest
+        run: sudo apt-get update -qq && sudo apt-get install -y python3-pytest
+
+      - name: Verify README.md table matches descriptors
+        run: python3 scripts/generate-readme-devices.py --check
+
+      - name: Verify Debian package deps match QML imports
+        run: python3 scripts/generate_package_deps.py --check
+
+      - name: Verify package-deps generator tests
+        run: cd scripts && python3 -m pytest ../tests/scripts/test_package_deps.py -q
+
+  # --------------------------------------------------------------------------
+  # Job 3: Debian package
+  # --------------------------------------------------------------------------
+  deb-pkg:
+    name: Debian Package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Route apt's .deb cache into a user-owned directory so actions/cache
+      # can both read it on save and extract into it on restore. Caching
+      # /var/cache/apt/archives on a native runner fails on restore because
+      # the directory is root-owned and tar runs as the runner user.
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/apt-archives
+          key: deb-pkg-apt-v2
+
+      - name: Install dependencies
+        run: |
+          mkdir -p ~/.cache/apt-archives/partial
+          sudo apt-get update
+          sudo apt-get -o Dir::Cache::archives="$HOME/.cache/apt-archives" install -y \
+            build-essential cmake ninja-build pkg-config dpkg-dev \
+            qt6-base-dev qt6-declarative-dev qt6-svg-dev \
+            qt6-tools-dev qt6-tools-dev-tools \
+            qml6-module-qtquick qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts qml6-module-qtquick-window \
+            qml6-module-qtquick-templates qml6-module-qtqml-workerscript \
+            qml6-module-qtquick-dialogs \
+            qt6-qpa-plugins libqt6opengl6-dev libqt6svg6-dev \
+            libxkbcommon-dev libudev-dev
+          # Ensure the cache dir is owned by the runner user before save.
+          sudo chown -R "$(id -u):$(id -g)" ~/.cache/apt-archives
+
+      - name: Build .deb
+        run: bash scripts/package-deb.sh
+
+      - name: Verify .deb produced
+        run: |
+          DEB_COUNT=$(find . -maxdepth 1 -name '*.deb' | wc -l)
+          echo "DEBs built: $DEB_COUNT"
+          find . -maxdepth 1 -name '*.deb' -exec echo "  {}" \; -exec dpkg --info {} \;
+          if [ "$DEB_COUNT" -eq 0 ]; then
+            echo "ERROR: No .deb files produced"
+            exit 1
+          fi
+
+  # --------------------------------------------------------------------------
+  # Job 3: Summary gate
+  # --------------------------------------------------------------------------
+  ci-ok:
+    name: CI Summary
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [build, deb-pkg, devices-table-check]
+    steps:
+      - name: Check all jobs passed
+        run: |
+          echo "Build:                ${{ needs.build.result }}"
+          echo "Deb:                  ${{ needs.deb-pkg.result }}"
+          echo "Devices table check:  ${{ needs.devices-table-check.result }}"
+
+          if [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.deb-pkg.result }}" != "success" ] || \
+             [ "${{ needs.devices-table-check.result }}" != "success" ]; then
+            echo ""
+            echo "One or more jobs failed."
+            exit 1
+          fi
+
+          echo ""
+          echo "All jobs passed."

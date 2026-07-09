@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Logitune Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: 'Inter', -apple-system, sans-serif; padding: 40px; }
+  h1 { color: #00EAD0; font-size: 32px; margin-bottom: 8px; }
+  h2 { color: #00EAD0; font-size: 18px; margin: 32px 0 16px; letter-spacing: 1px; text-transform: uppercase; }
+  .subtitle { color: #888; font-size: 14px; margin-bottom: 40px; }
+  .stats { display: flex; gap: 24px; margin-bottom: 40px; flex-wrap: wrap; }
+  .stat { background: #151517; border: 1px solid #252527; border-radius: 12px; padding: 16px 24px; min-width: 140px; }
+  .stat .num { font-size: 28px; font-weight: 700; color: #00EAD0; }
+  .stat .label { font-size: 12px; color: #888; margin-top: 4px; }
+  .layers { display: flex; flex-direction: column; gap: 12px; max-width: 1100px; }
+  .layer { background: #151517; border: 1px solid #252527; border-radius: 16px; padding: 24px; position: relative; }
+  .layer-label { position: absolute; top: -10px; left: 20px; background: #0a0a0a; padding: 0 10px; font-size: 11px; color: #00EAD0; letter-spacing: 1.5px; text-transform: uppercase; font-weight: 600; }
+  .layer-content { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .box { background: #1a1a1c; border: 1px solid #333; border-radius: 10px; padding: 14px 18px; min-width: 150px; flex: 1; }
+  .box.highlight { border-color: #00EAD0; background: rgba(0, 234, 208, 0.04); }
+  .box.interface { border-color: #814EFA; border-style: dashed; }
+  .box h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #fff; }
+  .box.interface h3 { color: #814EFA; }
+  .box.highlight h3 { color: #00EAD0; }
+  .box p { font-size: 11px; color: #999; line-height: 1.5; }
+  .box .lines { font-size: 10px; color: #555; margin-top: 6px; }
+  .box ul { list-style: none; padding: 0; margin: 6px 0 0; }
+  .box ul li { font-size: 11px; color: #888; padding: 2px 0; }
+  .box ul li::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 3px; background: #333; margin-right: 8px; }
+  .box ul li.active::before { background: #00EAD0; }
+  .arrow { text-align: center; color: #444; font-size: 20px; margin: 4px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .plug-badge { display: inline-block; background: #1a3a1a; color: #4afa4a; font-size: 9px; padding: 2px 8px; border-radius: 4px; margin-top: 6px; letter-spacing: 0.5px; }
+  .codec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+  .codec { background: #222; border-radius: 6px; padding: 6px 10px; font-size: 11px; color: #bbb; text-align: center; }
+  .flow { display: flex; align-items: center; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .flow-item { background: #1a1a1c; border: 1px solid #333; border-radius: 8px; padding: 8px 14px; font-size: 12px; }
+  .flow-arrow { color: #00EAD0; font-size: 16px; }
+  .section { margin-bottom: 48px; }
+  @media (max-width: 700px) { .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Logitune</h1>
+<p class="subtitle">Logitech Options+ clone for Linux &mdash; pluggable architecture for multi-device, multi-desktop support</p>
+
+<div class="stats">
+  <div class="stat"><div class="num">78</div><div class="label">Source Files</div></div>
+  <div class="stat"><div class="num">133</div><div class="label">Tests Passing</div></div>
+  <div class="stat"><div class="num">125</div><div class="label">main.cpp lines</div></div>
+  <div class="stat"><div class="num">463</div><div class="label">AppRoot lines</div></div>
+  <div class="stat"><div class="num">1008</div><div class="label">DeviceManager lines</div></div>
+</div>
+
+<div class="section">
+<h2>Architecture Layers</h2>
+
+<div class="layers">
+
+  <!-- QML UI -->
+  <div class="layer">
+    <div class="layer-label">QML UI</div>
+    <div class="layer-content">
+      <div class="box">
+        <h3>Pages</h3>
+        <ul>
+          <li class="active">ButtonsPage</li>
+          <li class="active">PointScrollPage</li>
+          <li class="active">EasySwitchPage</li>
+          <li class="active">SettingsPage</li>
+          <li>HomeView / DeviceView</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3>Components</h3>
+        <ul>
+          <li>ActionsPanel (695L)</li>
+          <li>DetailPanel (430L)</li>
+          <li>DeviceRender</li>
+          <li>ButtonCallout / InfoCallout</li>
+          <li>KeystrokeCapture</li>
+          <li>SideNav / BatteryChip</li>
+          <li>LogituneSlider / Toggle</li>
+        </ul>
+      </div>
+      <div class="box highlight">
+        <h3>Theme.qml</h3>
+        <p>Singleton &mdash; dark/light colors. Auto-detects system theme, user toggle override.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&darr; binds to Q_PROPERTY / Q_INVOKABLE</div>
+
+  <!-- Models -->
+  <div class="layer">
+    <div class="layer-label">QML Models (C++ singletons)</div>
+    <div class="grid-4">
+      <div class="box">
+        <h3>DeviceModel</h3>
+        <p>Device state, images, hotspots, battery, gestures, Easy-Switch</p>
+        <div class="lines">313 lines</div>
+      </div>
+      <div class="box">
+        <h3>ButtonModel</h3>
+        <p>8 button entries with name, action, type</p>
+        <div class="lines">85 lines</div>
+      </div>
+      <div class="box">
+        <h3>ActionModel</h3>
+        <p>26 predefined actions (static data)</p>
+        <div class="lines">103 lines</div>
+      </div>
+      <div class="box">
+        <h3>ProfileModel</h3>
+        <p>Per-app profile list for UI bar</p>
+        <div class="lines">114 lines</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&darr; owned by</div>
+
+  <!-- AppRoot -->
+  <div class="layer">
+    <div class="layer-label">Orchestrator</div>
+    <div class="box highlight" style="max-width: 100%;">
+      <h3>AppRoot &mdash; 463 lines</h3>
+      <p>Owns all subsystems. All signal wiring, profile lifecycle, gesture dispatch, button divert orchestration, thumb wheel accumulation. No UI concerns, no raw HID.</p>
+      <ul>
+        <li class="active">onDeviceSetupComplete &mdash; profile bootstrap + restore</li>
+        <li class="active">onDivertedButtonPressed &mdash; gesture + action dispatch</li>
+        <li class="active">onGestureRawXY &mdash; delta accumulation</li>
+        <li class="active">saveCurrentProfile &mdash; profile persistence</li>
+        <li>onButtonModelChanged, onThumbWheelRotation, onDeviceStateChanged</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="arrow">&darr; delegates to</div>
+
+  <!-- Core Services -->
+  <div class="layer">
+    <div class="layer-label">Core Services</div>
+    <div class="layer-content">
+      <div class="box">
+        <h3>DeviceManager</h3>
+        <p>HID++ lifecycle: udev, hidraw, feature enumeration, notifications, wake/sleep, KVM recovery, Bolt&harr;BT transport switching, ChangeHost</p>
+        <div class="lines">1008 lines</div>
+      </div>
+      <div class="box">
+        <h3>ProfileEngine</h3>
+        <p>INI persistence, app-switch debounce, file watcher for external changes, profile diff</p>
+        <div class="lines">264 lines</div>
+      </div>
+      <div class="box">
+        <h3>ActionExecutor</h3>
+        <p>Thin delegate to IInputInjector + GestureDetector (5 directions, 50-unit threshold)</p>
+        <div class="lines">~80 lines</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&darr; uses</div>
+
+  <!-- Interfaces + Implementations -->
+  <div class="layer">
+    <div class="layer-label">Pluggable Interfaces</div>
+    <div class="grid-3">
+      <div>
+        <div class="box interface">
+          <h3>IDevice</h3>
+          <p>Device descriptor: PIDs, CIDs, hotspots, images, features, gestures, DPI range</p>
+        </div>
+        <div class="box" style="margin-top: 8px;">
+          <h3>MxMaster3sDescriptor</h3>
+          <p>MX Master 3S: 8 controls, 6+3 hotspots, 3 Easy-Switch slots</p>
+          <div class="plug-badge">+ new file = new device</div>
+        </div>
+      </div>
+      <div>
+        <div class="box interface">
+          <h3>IDesktopIntegration</h3>
+          <p>Window tracking, compositor detection, global shortcut blocking</p>
+        </div>
+        <div class="box" style="margin-top: 8px;">
+          <h3>KDeDesktop / GenericDesktop</h3>
+          <p>KWin D-Bus for window tracking + KGlobalAccel for shortcut blocking</p>
+          <div class="plug-badge">+ new file = new DE</div>
+        </div>
+      </div>
+      <div>
+        <div class="box interface">
+          <h3>IInputInjector</h3>
+          <p>Keystroke injection, Ctrl+Scroll, D-Bus calls, app launch</p>
+        </div>
+        <div class="box" style="margin-top: 8px;">
+          <h3>UinputInjector</h3>
+          <p>Linux /dev/uinput virtual keyboard, full keycode table</p>
+          <div class="plug-badge">+ new file = new input method</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">&darr; built on</div>
+
+  <!-- HID++ Protocol -->
+  <div class="layer">
+    <div class="layer-label">HID++ 2.0 Protocol Layer</div>
+    <div class="layer-content" style="flex-direction: column; gap: 16px;">
+      <div class="flow">
+        <div class="flow-item"><strong>HidrawDevice</strong><br><span style="font-size:10px;color:#888">raw fd, poll(), read/write</span></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item"><strong>Transport</strong><br><span style="font-size:10px;color:#888">request/response, retry, atomic m_running</span></div>
+        <span class="flow-arrow">&rarr;</span>
+        <div class="flow-item"><strong>FeatureDispatcher</strong><br><span style="font-size:10px;color:#888">feature &rarr; index registry, call routing</span></div>
+      </div>
+      <div>
+        <p style="font-size: 11px; color: #666; margin-bottom: 8px;">Stateless feature codecs:</p>
+        <div class="codec-grid">
+          <div class="codec">Battery</div>
+          <div class="codec">AdjustableDPI</div>
+          <div class="codec">SmartShift</div>
+          <div class="codec">HiResWheel</div>
+          <div class="codec">ThumbWheel</div>
+          <div class="codec">ReprogControls</div>
+          <div class="codec">DeviceName</div>
+          <div class="codec">ChangeHost</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- Data Flow -->
+<div class="section">
+<h2>Key Data Flows</h2>
+
+<div class="layer" style="margin-bottom: 16px;">
+  <div class="layer-label">User changes DPI in UI</div>
+  <div class="flow">
+    <div class="flow-item">QML Slider</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">DeviceModel.setDPI()</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">DeviceManager.setDPI()</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">HID++ AdjustableDPI</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">currentDPIChanged signal</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">AppRoot.saveProfile()</div>
+  </div>
+</div>
+
+<div class="layer" style="margin-bottom: 16px;">
+  <div class="layer-label">Mouse button pressed (diverted)</div>
+  <div class="flow">
+    <div class="flow-item">hidraw notification</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">ReprogControls parse</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">divertedButtonPressed signal</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">AppRoot dispatch</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">UinputInjector.injectKeystroke()</div>
+  </div>
+</div>
+
+<div class="layer" style="margin-bottom: 16px;">
+  <div class="layer-label">Transport switch (Bolt &harr; BT)</div>
+  <div class="flow">
+    <div class="flow-item">udev "add" event</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">ping current device</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">timeout = stale</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">disconnectDevice()</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">probeDevice(new)</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">enumerateAndSetup()</div>
+    <span class="flow-arrow">&rarr;</span>
+    <div class="flow-item">profile restore</div>
+  </div>
+</div>
+
+</div>
+
+<!-- Extensibility -->
+<div class="section">
+<h2>How to Extend</h2>
+<div class="grid-3">
+  <div class="layer">
+    <div class="layer-label">New Device</div>
+    <p style="font-size: 13px; line-height: 1.8; padding: 8px;">
+      1. Create <code>src/core/devices/FooDescriptor.cpp</code><br>
+      2. Implement <code>IDevice</code> interface<br>
+      3. Register in <code>DeviceRegistry</code> constructor<br>
+      4. Add device images to QRC<br>
+      <strong style="color: #00EAD0;">Zero changes to existing code</strong>
+    </p>
+  </div>
+  <div class="layer">
+    <div class="layer-label">New Desktop Environment</div>
+    <p style="font-size: 13px; line-height: 1.8; padding: 8px;">
+      1. Create <code>src/core/desktop/GnomeDesktop.cpp</code><br>
+      2. Implement <code>IDesktopIntegration</code><br>
+      3. Add detection logic in <code>AppRoot::init()</code><br>
+      <strong style="color: #00EAD0;">One line change in AppRoot</strong>
+    </p>
+  </div>
+  <div class="layer">
+    <div class="layer-label">New Input Method</div>
+    <p style="font-size: 13px; line-height: 1.8; padding: 8px;">
+      1. Create <code>src/core/input/LibeiInjector.cpp</code><br>
+      2. Implement <code>IInputInjector</code><br>
+      3. Select in <code>AppRoot::init()</code><br>
+      <strong style="color: #00EAD0;">One line change in AppRoot</strong>
+    </p>
+  </div>
+</div>
+</div>
+
+<p style="color: #444; font-size: 11px; margin-top: 40px;">Generated from Logitune codebase &mdash; 2026-03-27</p>
+
+</body>
+</html>

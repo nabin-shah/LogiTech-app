@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# Reload udev rules so hidraw/uinput permissions take effect immediately
+if [ -x "$(command -v udevadm)" ]; then
+    udevadm control --reload-rules 2>/dev/null || true
+    udevadm trigger --subsystem-match=hidraw 2>/dev/null || true
+    udevadm trigger --subsystem-match=misc 2>/dev/null || true
+fi
+
+#DEBHELPER#
+
+exit 0
