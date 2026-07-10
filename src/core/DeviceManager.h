@@ -1,6 +1,7 @@
 #pragma once
 #include "DeviceSession.h"
 #include "PhysicalDevice.h"
+#include <QDBusConnection>
 #include <QMap>
 #include <QObject>
 #include <QSocketNotifier>
@@ -59,8 +60,13 @@ signals:
 
     void unknownDeviceDetected(uint16_t pid);
 
+    // Emitted after the system resumes from suspend. AppRoot uses this
+    // to re-apply profiles for all physical devices.
+    void systemResumed();
+
 private slots:
     void onUdevReady();
+    void onPrepareForSleep(bool suspending);
 
 private:
     void scanExistingDevices();

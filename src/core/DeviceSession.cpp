@@ -463,11 +463,20 @@ void DeviceSession::enumerateAndSetup()
         m_batteryPollTimer->setInterval(60000);
         connect(m_batteryPollTimer, &QTimer::timeout, this, [this]() {
             if (!m_connected || !m_features || !m_transport) return;
+
+            // Check if the mouse has been sleeping (>2 min gap since last
+            // HID++ response). If so, trigger re-enumeration which refreshes
+            // feature indices and emits setupComplete — the orchestrator then
+            // re-applies the saved profile (button diversions, thumb wheel
+            // mode, etc.).
+            checkSleepWake();
+
             if (!m_batteryDispatch) return;
             auto resp = m_features->call(m_transport.get(), m_deviceIndex,
                                           m_batteryDispatch->feature,
                                           m_batteryDispatch->getFn);
             if (resp.has_value()) {
+                m_lastResponseTime = QDateTime::currentMSecsSinceEpoch();
                 auto status = m_batteryDispatch->parse(*resp);
                 qCDebug(lcDevice) << "battery poll:" << status.level << "% charging:" << status.charging;
                 bool levelChanged   = (m_batteryLevel != status.level);
@@ -476,6 +485,8 @@ void DeviceSession::enumerateAndSetup()
                 m_batteryCharging = status.charging;
                 if (levelChanged || chargeChanged)
                     emit batteryChanged(m_batteryLevel, m_batteryCharging);
+            } else {
+                qCDebug(lcDevice) << "battery poll: no response (mouse may be sleeping)";
             }
         });
     }
@@ -558,6 +569,10 @@ void DeviceSession::handleNotification(const hidpp::Report &report)
 
     qCDebug(lcDevice) << "notification: featureIndex=" << Qt::hex << report.featureIndex
                       << "functionId=" << report.functionId;
+
+    // Every notification from the device proves it's alive and awake.
+    // Update the timestamp so checkSleepWake() can detect sleep gaps.
+    m_lastResponseTime = QDateTime::currentMSecsSinceEpoch();
 
     // HID++ 1.0 DeviceConnection notification from Bolt/Unifying receiver
     if (report.featureIndex == 0x41) {

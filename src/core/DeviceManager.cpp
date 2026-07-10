@@ -3,6 +3,7 @@
 #include "interfaces/IDevice.h"
 #include "logging/LogManager.h"
 
+#include <QDBusConnection>
 #include <QDateTime>
 #include <QFile>
 #include <QMap>
@@ -194,6 +195,19 @@ void DeviceManager::start()
     int fd = udev_monitor_get_fd(m_udevMon);
     m_udevNotifier = new QSocketNotifier(fd, QSocketNotifier::Read, this);
     connect(m_udevNotifier, &QSocketNotifier::activated, this, &DeviceManager::onUdevReady);
+
+    // Listen for system suspend/resume via systemd-logind. When the system
+    // suspends, the mouse loses power and resets all volatile HID++ state
+    // (button diversions, thumb wheel diversion, etc.). On resume we
+    // re-enumerate all sessions to refresh the feature table and then the
+    // orchestrator re-applies the saved profile.
+    QDBusConnection::systemBus().connect(
+        QStringLiteral("org.freedesktop.login1"),
+        QStringLiteral("/org/freedesktop/login1"),
+        QStringLiteral("org.freedesktop.login1.Manager"),
+        QStringLiteral("PrepareForSleep"),
+        this,
+        SLOT(onPrepareForSleep(bool)));
 
     scanExistingDevices();
 }
@@ -523,4 +537,35 @@ void DeviceManager::probeDevice(const QString &devNode)
     }
 }
 
+// ---------------------------------------------------------------------------
+// onPrepareForSleep() — systemd-logind suspend/resume hook
+// ---------------------------------------------------------------------------
+
+void DeviceManager::onPrepareForSleep(bool suspending)
+{
+    if (suspending) {
+        qCInfo(lcDevice) << "system suspending — mouse will lose volatile HID++ state";
+        return;
+    }
+
+    // Resume path. The mouse has been power-cycled and all button diversions,
+    // thumb wheel diversion, DPI, SmartShift, etc. have reverted to firmware
+    // defaults. Re-enumerate features (which may have shuffled indices) and
+    // re-apply the user's profile.
+    qCInfo(lcDevice) << "system resumed — re-enumerating" << m_sessions.size()
+                     << "sessions after 2.5s settle delay";
+
+    QTimer::singleShot(2500, this, [this]() {
+        for (auto &session : m_sessions) {
+            if (session->isConnected() && session->device() && session->device()->isOpen()) {
+                qCInfo(lcDevice) << "resume: re-enumerating" << session->deviceName();
+                session->enumerateAndSetup();
+            }
+        }
+        emit systemResumed();
+    });
+}
+
 } // namespace logitune
+
+#include "moc_DeviceManager.cpp"

@@ -159,6 +159,14 @@ void AppRoot::wireSignals()
     connect(&m_deviceManager, &DeviceManager::physicalDeviceRemoved,
             this, &AppRoot::onPhysicalDeviceRemoved);
 
+    // System suspend/resume. DeviceManager re-enumerates all sessions on
+    // resume which fires transportSetupComplete → profile re-apply. This
+    // connection logs the event and can serve as a hook for any resume-
+    // specific cleanup (e.g. re-initialising the uinput fd).
+    connect(&m_deviceManager, &DeviceManager::systemResumed, this, [this]() {
+        qCInfo(lcApp) << "system resumed — profiles will be re-applied via transportSetupComplete";
+    });
+
     // Gesture keystroke edits in the UI. saveCurrentProfile re-serializes
     // the displayed profile; the orchestrator's own userChangedSomething
     // subscription covers point/scroll tweaks from DeviceCommandHandler.
